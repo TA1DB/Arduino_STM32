@@ -29,8 +29,8 @@
  * @brief Includes <math.h>; provides Arduino-compatible math routines.
  */
 
-#ifndef _WIRING_MATH_H_
-#define _WIRING_MATH_H_
+#ifndef _WIRISH_MATH_H_
+#define _WIRISH_MATH_H_
 
 #include <math.h>
 
@@ -78,11 +78,12 @@ long random(long min, long max);
  * @param toEnd the end of the value's mapped range.
  * @return the mapped value.
  */
-static inline long map(long value, long fromStart, long fromEnd,
-                long toStart, long toEnd) {
-    return (value - fromStart) * (toEnd - toStart) / (fromEnd - fromStart) +
-        toStart;
-}
+ // Fix by Pito 9/2017
+  static inline int32_t map(int32_t value, int32_t fromStart, int32_t fromEnd,
+     int32_t toStart, int32_t toEnd) {
+     return ((int64_t)(value - fromStart) * (toEnd - toStart)) / (fromEnd - fromStart) +
+         toStart;
+ }
 
 #define PI          3.1415926535897932384626433832795
 #define HALF_PI     1.5707963267948966192313216916398
@@ -90,8 +91,21 @@ static inline long map(long value, long fromStart, long fromEnd,
 #define DEG_TO_RAD  0.017453292519943295769236907684886
 #define RAD_TO_DEG 57.295779513082320876798154814105
 
-#define min(a,b)                ((a)<(b)?(a):(b))
-#define max(a,b)                ((a)>(b)?(a):(b))
+#if (__GNUC__ > 4) && defined(__cplusplus)
+	#include <algorithm>
+	using std::min;
+	using std::max;
+#else // C
+	#include <stdlib.h>
+	#ifndef min
+		#define min(a,b) ((a)<(b)?(a):(b))
+	#endif // min
+
+	#ifndef max
+		#define max(a,b) ((a)>(b)?(a):(b))
+	#endif // max
+#endif // __cplusplus
+
 #define constrain(amt,low,high) ((amt)<(low)?(low):((amt)>(high)?(high):(amt)))
 #define round(x)                ((x)>=0?(long)((x)+0.5):(long)((x)-0.5))
 #define radians(deg)            ((deg)*DEG_TO_RAD)
@@ -147,5 +161,12 @@ double sqrt(double x);
  * @return x raised to the power y.
  */
 double pow(double x, double y);
+
+inline uint16_t makeWord( uint16_t w ) { return w; }
+
+inline uint16_t makeWord( uint8_t h, uint8_t l ) { return (h << 8) | l; }
+
+#define word(...) makeWord(__VA_ARGS__)
+
 
 #endif

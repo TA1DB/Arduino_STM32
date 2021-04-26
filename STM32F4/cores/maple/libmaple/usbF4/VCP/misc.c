@@ -68,19 +68,15 @@
 
 /* Includes ------------------------------------------------------------------*/
 typedef enum {DISABLE = 0, ENABLE = !DISABLE} FunctionalState;
-typedef unsigned long		uint32_t;
-typedef unsigned int		u32;
-typedef unsigned short	uint16_t;
-typedef unsigned short	u16;
-typedef unsigned char		uint8_t;
-typedef unsigned char		u8;
+
+
 #include "misc.h"
 #define assert_param(x)
 
 typedef int IRQn_Type;
 #define __NVIC_PRIO_BITS          4
 #define __Vendor_SysTickConfig    1
-#include <core_cm4.h>
+#include "core_cm4.h"
 
 /** @addtogroup STM32F4xx_StdPeriph_Driver
   * @{

@@ -28,15 +28,22 @@
  *  @brief Delay implementation.
  */
 
-#include "libmaple.h"
-#include "systick.h"
+#include <libmaple/libmaple.h>
+#include <libmaple/systick.h>
 #include "wirish_time.h"
-#include "delay.h"
+#include <libmaple/delay.h>
 
-void delay(unsigned long ms) {
-    uint32 i;
-    for (i = 0; i < ms; i++) {
-        delayMicroseconds(1000);
+void delay(unsigned long ms)
+{
+    uint32 start = micros();
+    while (ms > 0)
+    {
+        yield();
+        while ( (ms > 0) && ((micros() - start) >= 1000) )
+        {
+            ms--;
+            start += 1000;
+        }
     }
 }
 

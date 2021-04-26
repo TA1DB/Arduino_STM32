@@ -57,6 +57,7 @@ public:
     void begin(uint32 baud);
     void end(void);
 
+	operator bool() { return true; } // This is needed because of "if (!Serial)"
     /* I/O */
     virtual int available(void);
     virtual int peek(void);
@@ -64,6 +65,7 @@ public:
     uint32 pending(void);
     virtual int read(void);
     virtual size_t write(unsigned char);
+    virtual size_t write(const uint8 * dataptr, uint32 len) { return usart_tx(usart_device, dataptr, len); }
     using Print::write;
 
     /* Pin accessors */
@@ -75,12 +77,17 @@ private:
     uint8 rx_pin;
 };
 
-extern HardwareSerial Serial;
 extern HardwareSerial Serial1;
 extern HardwareSerial Serial2;
-#if defined(STM32_HIGH_DENSITY) && !defined(BOARD_maple_RET6)
+#ifdef BOARD_USART3_TX_PIN
 extern HardwareSerial Serial3;
+#endif
+#ifdef BOARD_UART4_TX_PIN
 extern HardwareSerial Serial4;
 #endif
+#ifdef BOARD_UART5_TX_PIN
+extern HardwareSerial Serial5;
+#endif
+extern HardwareSerial Serial6;
 extern HardwareSerial &SerialDebug;
 #endif

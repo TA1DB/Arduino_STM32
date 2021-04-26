@@ -17,21 +17,27 @@
   Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 */
 
-#ifndef IPAddress_h
-#define IPAddress_h
+#ifndef _IPAddress_h_
+#define _IPAddress_h_
 
 #include <stdint.h>
 #include <WString.h>
 #include <Printable.h>
 
-// A class to make it easier to handle and pass around IP addresses
 
+typedef union {
+	uint32_t dword;
+	uint8_t bytes[4];  // IPv4 address
+} ip_addr;
+// Utility functions to handle IP addresses as chars
+char * ip2chr(ip_addr addr);
+char * mac2chr(uint8_t * mac);
+
+
+// A class to make it easier to handle and pass around IP addresses
 class IPAddress : public Printable {
 private:
-    union {
-	uint8_t bytes[4];  // IPv4 address
-	uint32_t dword;
-    } _address;
+    ip_addr _address;
 
     // Access the raw byte array containing the address.  Because this returns a pointer
     // to the internal structure rather than a copy of the address this function should only
@@ -43,7 +49,7 @@ public:
     // Constructors
     IPAddress();
     IPAddress(uint8_t first_octet, uint8_t second_octet, uint8_t third_octet, uint8_t fourth_octet);
-    IPAddress(uint32_t address);
+    IPAddress(uint32_t address) { _address.dword = address; }
     IPAddress(const uint8_t *address);
 
     bool fromString(const char *address);
@@ -65,6 +71,7 @@ public:
 
     virtual size_t printTo(Print& p) const;
     String toString();
+	char * toChars() { return ip2chr(_address); }
 
     friend class EthernetClass;
     friend class UDP;

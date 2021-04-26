@@ -31,8 +31,8 @@
  * @brief STM32F1 SPI/I2S series header.
  */
 
-#ifndef _LIBMAPLE_STM32F1_SPI_H_
-#define _LIBMAPLE_STM32F1_SPI_H_
+#ifndef _LIBMAPLE_SPI_F4_H_
+#define _LIBMAPLE_SPI_F4_H_
 
 #include <libmaple/libmaple_types.h>
 
@@ -50,29 +50,31 @@ struct spi_reg_map;
 #define SPI2_BASE                       ((struct spi_reg_map*)0x40003800)
 #define SPI3_BASE                       ((struct spi_reg_map*)0x40003C00)
 
+#define SPI4_BASE                       ((struct spi_reg_map*)0x40013400)
+#define SPI5_BASE                       ((struct spi_reg_map*)0x40015000)
+
 /*
  * Device pointers
  */
 
 struct spi_dev;
 
-extern struct spi_dev *SPI1;
-extern struct spi_dev *SPI2;
-#if defined(STM32_HIGH_DENSITY) || defined(STM32_XL_DENSITY)
-extern struct spi_dev *SPI3;
+extern struct spi_dev spi1;
+extern struct spi_dev spi2;
+extern struct spi_dev spi3;
+#define SPI1  (&spi1)
+#define SPI2  (&spi2)
+#define SPI3  (&spi3)
+
+#if BOARD_NR_SPI>3
+extern struct spi_dev spi4;
+#define SPI4  (&spi4)
+#endif
+#if BOARD_NR_SPI>4
+extern struct spi_dev spi5;
+#define SPI5  (&spi5)
 #endif
 
-/*
- * Routines
- */
-
-/* spi_gpio_cfg(): Backwards compatibility shim to spi_config_gpios() */
-struct gpio_dev;
-extern void spi_config_gpios(struct spi_dev*, uint8,
-                             struct gpio_dev*, uint8,
-                             struct gpio_dev*, uint8, 
-                             struct gpio_dev*, uint8, 
-                             struct gpio_dev*, uint8); 
 
 #ifdef __cplusplus
 }

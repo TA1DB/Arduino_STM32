@@ -34,9 +34,9 @@
 #define _WIRISH_H_
 
 #include <stdlib.h>
-#include "libmaple.h"
+#include <stdio.h>
+#include <stdint.h>
 
-#include "wirish_types.h"
 #include "boards.h"
 #include "io.h"
 #include "bits.h"
@@ -44,10 +44,8 @@
 #include "ext_interrupts.h"
 #include "wirish_debug.h"
 #include "wirish_math.h"
-#include "wirish_time.h"
 #include <wirish_constants.h>
-#include "HardwareSPI.h"
-#include "HardwareSerial.h"
+#include <libmaple/HardwareSerial.h>
 #include "HardwareTimer.h"
 #include "usb_serial.h"
 
@@ -55,9 +53,10 @@
 #define HIGH 0x1
 #define LOW  0x0
 
-#define true 0x1
-#define false 0x0
-
+#ifndef true
+  #define true 0x1
+  #define false 0x0
+#endif
 
 #define lowByte(w)                     ((w) & 0xFF)
 #define highByte(w)                    (((w) >> 8) & 0xFF)
@@ -67,6 +66,8 @@
 #define bitWrite(value, bit, bitvalue) (bitvalue ? bitSet(value, bit) : \
                                                    bitClear(value, bit))
 #define bit(b)                         (1UL << (b))
+
+#define digitalPinToInterrupt(pin)     (pin)
 
 typedef uint8 boolean;
 typedef uint8 byte;

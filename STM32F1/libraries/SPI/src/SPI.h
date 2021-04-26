@@ -99,6 +99,13 @@
 #define DATA_SIZE_8BIT SPI_CR1_DFF_8_BIT
 #define DATA_SIZE_16BIT SPI_CR1_DFF_16_BIT
 
+typedef enum {
+		SPI_STATE_IDLE,
+		SPI_STATE_READY,
+		SPI_STATE_RECEIVE,
+		SPI_STATE_TRANSMIT,
+        SPI_STATE_TRANSFER
+	} spi_mode_t;
 class SPISettings {
 public:
 	SPISettings(uint32_t clock, BitOrder bitOrder, uint8_t dataMode) {
@@ -115,6 +122,13 @@ public:
 			init_MightInline(clock, bitOrder, dataMode, dataSize);
 		}
 	}
+	SPISettings(uint32_t clock) {
+		if (__builtin_constant_p(clock)) {
+			init_AlwaysInline(clock, MSBFIRST, SPI_MODE0, DATA_SIZE_8BIT);
+		} else {
+			init_MightInline(clock, MSBFIRST, SPI_MODE0, DATA_SIZE_8BIT);
+		}
+	}
 	SPISettings() { init_AlwaysInline(4000000, MSBFIRST, SPI_MODE0, DATA_SIZE_8BIT); }
 private:
 	void init_MightInline(uint32_t clock, BitOrder bitOrder, uint8_t dataMode, uint32_t dataSize) {
@@ -127,21 +141,25 @@ private:
 		this->dataSize = dataSize;
 	}
 	uint32_t clock;
+  uint32_t dataSize;
+  uint32_t clockDivider;
 	BitOrder bitOrder;
 	uint8_t dataMode;
-	uint32_t dataSize;
-	
+  uint8_t _SSPin;
+	volatile spi_mode_t state;
 	spi_dev *spi_d;
-	uint8_t _SSPin;
-	uint32_t clockDivider;
 	dma_channel spiRxDmaChannel, spiTxDmaChannel;
 	dma_dev* spiDmaDev;
+  void (*receiveCallback)(void) = NULL;
+  void (*transmitCallback)(void) = NULL;
 	
 	friend class SPIClass;
 };
 
 
-volatile static bool dma1_ch3_Active;
+/*
+ * Kept for compat.
+ */
 
 /**
  * @brief Wirish SPI interface.
@@ -152,8 +170,6 @@ volatile static bool dma1_ch3_Active;
 class SPIClass {
 public:
 
-
-
     /**
      * @param spiPortNumber Number of the SPI port to manage.
      */
@@ -162,8 +178,6 @@ public:
     /*
      * Set up/tear down
      */
-
-
 
     /**
      * @brief Equivalent to begin(SPI_1_125MHZ, MSBFIRST, 0).
@@ -210,46 +224,55 @@ public:
 	*/
     void setDataSize(uint32 ds);
 	
-	
+    /*  Victor Perez 2017. Added to set and clear callback functions for callback
+	* on DMA transfer completion.
+	* onReceive used to set the callback in case of dmaTransfer (tx/rx), once rx is completed
+	* onTransmit used to set the callback in case of dmaSend (tx only). That function
+	* will NOT be called in case of TX/RX
+    */
+    void onReceive(void(*)(void));
+    void onTransmit(void(*)(void));
+
     /*
      * I/O
      */
 
     /**
-     * @brief Return the next unread byte.
+     * @brief Return the next unread byte/word.
      *
-     * If there is no unread byte waiting, this function will block
+     * If there is no unread byte/word waiting, this function will block
      * until one is received.
      */
-    uint8 read(void);
+    uint16 read(void);
 
     /**
      * @brief Read length bytes, storing them into buffer.
      * @param buffer Buffer to store received bytes into.
-     * @param length Number of bytes to store in buffer.  This
+     * @param length Number of bytes to store in buffer. This
      *               function will block until the desired number of
      *               bytes have been read.
      */
     void read(uint8 *buffer, uint32 length);
 
     /**
-     * @brief Transmit a byte.
-     * @param data Byte to transmit.
-     */
-//    void write(uint8 data);
-
-    /**
-     * @brief Transmit a half word.
+     * @brief Transmit one byte/word.
      * @param data to transmit.
      */
-    void write(uint16 data);	
-	
+    void write(uint16 data);
+    void write16(uint16 data); // write 2 bytes in 8 bit mode (DFF=0)
+
     /**
-     * @brief Transmit multiple bytes.
-     * @param buffer Bytes to transmit.
-     * @param length Number of bytes in buffer to transmit.
+     * @brief Transmit one byte/word a specified number of times.
+     * @param data to transmit.
      */
-    void write(const uint8 *buffer, uint32 length);
+    void write(uint16 data, uint32 n);	
+
+    /**
+     * @brief Transmit multiple bytes/words.
+     * @param buffer Bytes/words to transmit.
+     * @param length Number of bytes/words in buffer to transmit.
+     */
+    void write(const void * buffer, uint32 length);
 
     /**
      * @brief Transmit a byte, then return the next unread byte.
@@ -261,9 +284,13 @@ public:
      */
     uint8 transfer(uint8 data) const;
     uint16_t transfer16(uint16_t data) const;
-	
+    void transfer(const uint8_t * tx_buf, uint8_t * rx_buf, uint32 len);
+    void transfer(uint8_t * trx_buf, uint32 len) { transfer((const uint8_t *)trx_buf, trx_buf, len); }
+
+
 	/**
      * @brief Sets up a DMA Transfer for "length" bytes.
+	 * The transfer mode (8 or 16 bit mode) is evaluated from the SPI peripheral setting.
      *
      * This function transmits and receives to buffers.
      *
@@ -271,31 +298,26 @@ public:
      * @param receiveBuf buffer Bytes to save received data. 
      * @param length Number of bytes in buffer to transmit.
 	 */
-	uint8 dmaTransfer(uint8 *transmitBuf, uint8 *receiveBuf, uint16 length);
+    uint8 dmaTransfer(const void * transmitBuf, void * receiveBuf, uint16 length);
+    uint8 dmaTransfer(const uint16 value, void * receiveBuf, uint16 length);
+    void dmaTransferSet(const void *transmitBuf, void *receiveBuf);
+    uint8 dmaTransferRepeat(uint16 length);
 
 	/**
-     * @brief Sets up a DMA Transmit for bytes.
+     * @brief Sets up a DMA Transmit for SPI 8 or 16 bit transfer mode.
+	 * The transfer mode (8 or 16 bit mode) is evaluated from the SPI peripheral setting.
      *
-     * This function transmits and does not care about the RX fifo.
-     *
-     * @param transmitBuf buffer Bytes to transmit,
-     * @param length Number of bytes in buffer to transmit.
-	 * @param minc Set to use Memory Increment mode, clear to use Circular mode.
-     */
-	uint8 dmaSend(uint8 *transmitBuf, uint16 length, bool minc = 1);
-	
-	/**
-     * @brief Sets up a DMA Transmit for half words.
-	 * SPI PERFIPHERAL MUST BE SET TO 16 BIT MODE BEFORE
-     *
-     * This function transmits and does not care about the RX fifo.
+     * This function only transmits and does not care about the RX fifo.
      *
      * @param data buffer half words to transmit,
      * @param length Number of bytes in buffer to transmit.
-     * @param minc Set to use Memory Increment mode (default if blank), clear to use Circular mode.
+	 * @param minc Set to use Memory Increment mode, clear to use Circular mode.
      */
-	uint8 dmaSend(uint16 *transmitBuf, uint16 length, bool minc = 1);
+    uint8 dmaSend(const void * transmitBuf, uint16 length, bool minc = 1);
+    void dmaSendSet(const void * transmitBuf, bool minc);
+    uint8 dmaSendRepeat(uint16 length);
 
+    uint8 dmaSendAsync(const void * transmitBuf, uint16 length, bool minc = 1);
     /*
      * Pin accessors
      */
@@ -327,23 +349,20 @@ public:
      *        this HardwareSPI instance.
      */
     spi_dev* c_dev(void) { return _currentSetting->spi_d; }
-	
-		
-	spi_dev *dev(){ return _currentSetting->spi_d;}
-	
-	 /**
-     * @brief Sets the number of the SPI peripheral to be used by
-     *        this HardwareSPI instance.
-	 *
-	 * @param spi_num Number of the SPI port. 1-2 in low density devices
-	 *			or 1-3 in high density devices.
-     */
-	
-	void setModule(int spi_num)
-	{
-		_currentSetting=&_settings[spi_num-1];// SPI channels are called 1 2 and 3 but the array is zero indexed
-	}
 
+    spi_dev *dev(){ return _currentSetting->spi_d;}
+
+    /**
+    * @brief Sets the number of the SPI peripheral to be used by
+    *        this HardwareSPI instance.
+    *
+    * @param spi_num Number of the SPI port. 1-2 in low density devices
+    *			or 1-3 in high density devices.
+    */
+    void setModule(int spi_num)
+    {
+        _currentSetting=&_settings[spi_num-1];// SPI channels are called 1 2 and 3 but the array is zero indexed
+    }
 
     /* -- The following methods are deprecated --------------------------- */
 
@@ -376,21 +395,29 @@ public:
      * @see HardwareSPI::read()
      */
     uint8 recv(void);
-	
+
 private:
-/*
-	static inline void DMA1_CH3_Event() {
-		dma1_ch3_Active = 0;
-//		dma_disable(DMA1, DMA_CH3);
-//		dma_disable(DMA1, DMA_CH2);
-		
-		// To Do. Need to wait for 
-	}
-*/	
+
 	SPISettings _settings[BOARD_NR_SPI];
 	SPISettings *_currentSetting;
-	
+
 	void updateSettings(void);
+    /*
+	* Functions added for DMA transfers with Callback. 
+	* Experimental.
+	*/
+
+    void EventCallback(void);
+
+    #if BOARD_NR_SPI >= 1
+    static void _spi1EventCallback(void);
+    #endif
+    #if BOARD_NR_SPI >= 2
+    static void _spi2EventCallback(void);
+    #endif
+    #if BOARD_NR_SPI >= 3
+    static void _spi3EventCallback(void);
+    #endif
 	/*
 	spi_dev *spi_d;
 	uint8_t _SSPin;
@@ -400,6 +427,14 @@ private:
 	*/
 };
 
+/**
+* @brief Waits unti TXE (tx empy) flag set and BSY (busy) flag unset.
+*/
+static inline void waitSpiTxEnd(spi_dev *spi_d)
+{
+    while (spi_is_tx_empty(spi_d) == 0); // wait until TXE=1
+    while (spi_is_busy(spi_d) != 0); // wait until BSY=0
+}
 
 extern SPIClass SPI;//(1);// dummy params
 #endif

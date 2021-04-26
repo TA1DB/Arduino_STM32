@@ -34,9 +34,8 @@
 /* TODO [0.1.0] Remove deprecated methods. */
 
 
-
-#ifndef _SPI_H_INCLUDED
-#define _SPI_H_INCLUDED
+#ifndef _LIB_SPI_H_
+#define _LIB_SPI_H_
 
 #include <libmaple/libmaple_types.h>
 #include <libmaple/spi.h>
@@ -62,23 +61,6 @@
 #define SPI_CLOCK_DIV128 SPI_BAUD_PCLK_DIV_128
 #define SPI_CLOCK_DIV256 SPI_BAUD_PCLK_DIV_256
 
-/*
- * Roger Clark. 20150106
- * Commented out redundant AVR defined
- * 
-#define SPI_MODE_MASK 0x0C  // CPOL = bit 3, CPHA = bit 2 on SPCR
-#define SPI_CLOCK_MASK 0x03  // SPR1 = bit 1, SPR0 = bit 0 on SPCR
-#define SPI_2XCLOCK_MASK 0x01  // SPI2X = bit 0 on SPSR
-
-// define SPI_AVR_EIMSK for AVR boards with external interrupt pins
-#if defined(EIMSK)
-  #define SPI_AVR_EIMSK  EIMSK
-#elif defined(GICR)
-  #define SPI_AVR_EIMSK  GICR
-#elif defined(GIMSK)
-  #define SPI_AVR_EIMSK  GIMSK
-#endif
-*/
 
 #ifndef STM32_LSBFIRST
 #define STM32_LSBFIRST 0
@@ -88,41 +70,94 @@
 #endif
 
 // PC13 or PA4
-//#define BOARD_SPI_DEFAULT_SS PA4
-#define BOARD_SPI_DEFAULT_SS PC13
+#define BOARD_SPI_DEFAULT_SS BOARD_SPI3_NSS_PIN
 
 #define SPI_MODE0 SPI_MODE_0
 #define SPI_MODE1 SPI_MODE_1
 #define SPI_MODE2 SPI_MODE_2
 #define SPI_MODE3 SPI_MODE_3
 
-class SPISettings {
-public:
-	SPISettings(uint32_t clock, BitOrder bitOrder, uint8_t dataMode) {
-		if (__builtin_constant_p(clock)) {
-			init_AlwaysInline(clock, bitOrder, dataMode);
-		} else {
-			init_MightInline(clock, bitOrder, dataMode);
-		}
-	}
-	SPISettings() { init_AlwaysInline(4000000, MSBFIRST, SPI_MODE0); }
+#define SPI_DATA_SIZE_8BIT SPI_CR1_DFF_8_BIT
+#define SPI_DATA_SIZE_16BIT SPI_CR1_DFF_16_BIT
+#define DMA_ASYNC (BIT0)
+
+typedef void (*u32FuncPtr)(uint32_t);
+
+typedef enum {
+    SPI_STATE_IDLE = 0,
+    SPI_STATE_READY,
+    SPI_STATE_RECEIVE,
+    SPI_STATE_TRANSMIT,
+    SPI_STATE_TRANSFER
+} spi_mode_t;
+
+class SPISettings
+{
 private:
-	void init_MightInline(uint32_t clock, BitOrder bitOrder, uint8_t dataMode) {
-		init_AlwaysInline(clock, bitOrder, dataMode);
-	}
-	void init_AlwaysInline(uint32_t clock, BitOrder bitOrder, uint8_t dataMode) __attribute__((__always_inline__)) {
-		this->clock = clock;
-		this->bitOrder = bitOrder;
-		this->dataMode = dataMode;
-	}
-	uint32_t clock;
-	BitOrder bitOrder;
-	uint8_t dataMode;
-	friend class SPIClass;
+    inline void init_AlwaysInline(uint32_t clock, BitOrder bitOrder, uint8_t dataMode, uint32_t dataSize)
+    {
+        this->clock = clock;
+        this->bitOrder = bitOrder;
+        this->dataMode = dataMode;
+        this->dataSize = dataSize;
+    }
+    inline void init_MightInline(uint32_t clock, BitOrder bitOrder, uint8_t dataMode, uint32_t dataSize)
+    {
+        init_AlwaysInline(clock, bitOrder, dataMode, dataSize);
+    }
+public:
+    SPISettings(uint32_t clock, BitOrder bitOrder, uint8_t dataMode)
+    {
+        if (__builtin_constant_p(clock)) {
+            init_AlwaysInline(clock, bitOrder, dataMode, SPI_DATA_SIZE_8BIT);
+        } else {
+            init_MightInline(clock, bitOrder, dataMode, SPI_DATA_SIZE_8BIT);
+        }
+    }
+    SPISettings(uint32_t clock, BitOrder bitOrder, uint8_t dataMode, uint32_t dataSize)
+    {
+        if (__builtin_constant_p(clock)) {
+            init_AlwaysInline(clock, bitOrder, dataMode, dataSize);
+        } else {
+            init_MightInline(clock, bitOrder, dataMode, dataSize);
+        }
+    }
+    SPISettings(uint32_t clock)
+    {
+        if (__builtin_constant_p(clock)) {
+            init_AlwaysInline(clock, MSBFIRST, SPI_MODE0, SPI_DATA_SIZE_8BIT);
+        } else {
+            init_MightInline(clock, MSBFIRST, SPI_MODE0, SPI_DATA_SIZE_8BIT);
+        }
+    }
+    SPISettings() { init_AlwaysInline(4200000, MSBFIRST, SPI_MODE0, SPI_DATA_SIZE_8BIT); }
+
+private:
+    uint32_t clock;
+    uint32_t dataSize;
+    uint32_t clockDivider;
+public:
+    spi_dev * spi_d;
+    const dma_dev * spiDmaDev;
+    const spi_pins_t * pins;
+    voidFuncPtr dmaIsr;
+    u32FuncPtr trxCallback;
+    dma_channel spiDmaChannel;
+    dma_stream spiRxDmaStream, spiTxDmaStream;
+    volatile spi_mode_t state;
+private:
+    const void * dmaTxBuffer;
+    uint16_t dmaTrxLength;
+    uint8_t  dmaTrxAsync;
+    BitOrder bitOrder;
+    uint8_t dataMode;
+public:
+
+    friend class SPIClass;
 };
 
+extern SPISettings _settings[BOARD_NR_SPI];
 
-volatile static bool dma1_ch3_Active;
 
 /**
  * @brief Wirish SPI interface.
@@ -133,18 +168,10 @@ volatile static bool dma1_ch3_Active;
 class SPIClass {
 public:
 
-
-
     /**
      * @param spiPortNumber Number of the SPI port to manage.
      */
     SPIClass(uint32 spiPortNumber);
-
-    /*
-     * Set up/tear down
-     */
-
-
 
     /**
      * @brief Equivalent to begin(SPI_1_125MHZ, MSBFIRST, 0).
@@ -171,64 +198,79 @@ public:
      */
     void end(void);
 
-	void beginTransaction(SPISettings settings) { beginTransaction(BOARD_SPI_DEFAULT_SS, settings); }
-	void beginTransaction(uint8_t pin, SPISettings settings);
-	void endTransaction(void);
+    void beginTransaction(uint8_t pin, SPISettings settings);
+    void beginTransaction(SPISettings settings) { beginTransaction(BOARD_SPI_DEFAULT_SS, settings); }
+    void endTransaction(void);
 
-	void setClockDivider(uint32_t clockDivider);
-	void setBitOrder(BitOrder bitOrder);	
-	void setDataMode(uint8_t dataMode);		
-	
-	// SPI Configuration methods
-	void attachInterrupt(void);
-	void detachInterrupt(void);
-	
-	/*	Victor Perez. Added to change datasize from 8 to 16 bit modes on the fly.
-	*	Input parameter should be SPI_CR1_DFF set to 0 or 1 on a 32bit word.
-	*	Requires an added function spi_data_size on  STM32F1 / cores / maple / libmaple / spi.c 
-	*/
+    void beginTransactionSlave(SPISettings settings);
+
+    void setClockDivider(uint32_t clockDivider);
+    void setBitOrder(BitOrder bitOrder);
+    void setDataMode(uint8_t dataMode);
+    
+    // SPI Configuration methods
+    void attachInterrupt(void);
+    void detachInterrupt(void);
+
+    //-------------------------------------------------------------------------
+    //  Victor Perez. Added to change datasize from 8 to 16 bit modes on the fly.
+    //  Input parameter should be SPI_CR1_DFF set to 0 or 1 on a 32bit word.
+    //  Requires an added function spi_data_size on  STM32F1 / cores / maple / libmaple / spi.c 
+    //-------------------------------------------------------------------------
     void setDataSize(uint32 ds);
-	
-	
+
+    //-------------------------------------------------------------------------
+    //  Victor Perez 2017. Added to set and clear user callback functions
+    //  for callback on DMA transfer completion.
+    //  onReceive used to set the callback in case of dmaTransfer (rx), once rx is completed
+    //  onTransmit used to set the callback in case of dmaSend (tx).
+    //-------------------------------------------------------------------------
+    void onTransferEnd(u32FuncPtr callback) { _currentSetting->trxCallback = callback; }
+    inline void onTransmit(u32FuncPtr callback) { onTransferEnd(callback); }
+    inline void onReceive(u32FuncPtr callback) { onTransferEnd(callback); }
+
     /*
      * I/O
      */
 
     /**
-     * @brief Return the next unread byte.
+     * @brief Return the next unread byte/word.
      *
-     * If there is no unread byte waiting, this function will block
+     * If there is no unread byte/word waiting, this function will block
      * until one is received.
      */
-    uint8 read(void);
+    uint16 read(void);
 
     /**
      * @brief Read length bytes, storing them into buffer.
      * @param buffer Buffer to store received bytes into.
-     * @param length Number of bytes to store in buffer.  This
+     * @param length Number of bytes to store in buffer. This
      *               function will block until the desired number of
      *               bytes have been read.
      */
-    void read(uint8 *buffer, uint32 length);
+    void read(uint8 *buffer, uint32 length) {
+        return transfer((uint8_t)0xFF, buffer, length);
+    }
 
     /**
-     * @brief Transmit a byte.
-     * @param data Byte to transmit.
-     */
-//    void write(uint8 data);
-
-    /**
-     * @brief Transmit a half word.
+     * @brief Transmit one byte/word.
      * @param data to transmit.
      */
-    void write(uint16 data);	
-	
+    void write(const uint16 data);
+    void write16(const uint16 data); // write 2 bytes in 8 bit mode (DFF=0)
+
     /**
-     * @brief Transmit multiple bytes.
-     * @param buffer Bytes to transmit.
-     * @param length Number of bytes in buffer to transmit.
+     * @brief Transmit one byte/word a specified number of times.
+     * @param data to transmit.
      */
-    void write(const uint8 *buffer, uint32 length);
+    void write(const uint16 data, uint32 n);    
+
+    /**
+     * @brief Transmit multiple bytes/words.
+     * @param buffer Bytes/words to transmit.
+     * @param length Number of bytes/words in buffer to transmit.
+     */
+    void write(const void * buffer, uint32 length);
 
     /**
      * @brief Transmit a byte, then return the next unread byte.
@@ -239,40 +281,65 @@ public:
      * @return Next unread byte.
      */
     uint8 transfer(uint8 data) const;
-	
-	/**
+    uint16_t transfer16(const uint16_t data) const;
+    void transfer(const uint8_t * tx_buf, uint8_t * rx_buf, uint32 len);
+    void transfer(const uint8_t tx_data, uint8_t * rx_buf, uint32 len);
+    void transfer(const uint16_t * tx_buf, uint16_t * rx_buf, uint32 len);
+    void transfer(const uint16_t tx_data, uint16_t * rx_buf, uint32 len);
+	inline void transfer(uint8_t * buf, uint32 len) { transfer((const uint8_t *)buf, buf, len); }
+
+    /**
      * @brief Sets up a DMA Transfer for "length" bytes.
+     * The transfer mode (8 or 16 bit mode) is evaluated from the SPI peripheral setting.
      *
      * This function transmits and receives to buffers.
      *
      * @param transmitBuf buffer Bytes to transmit. If passed as 0, it sends FF repeatedly for "length" bytes
      * @param receiveBuf buffer Bytes to save received data. 
      * @param length Number of bytes in buffer to transmit.
-	 */
-	uint8 dmaTransfer(uint8 *transmitBuf, uint8 *receiveBuf, uint16 length);
-
-	/**
-     * @brief Sets up a DMA Transmit for bytes.
-     *
-     * This function transmits and does not care about the RX fifo.
-     *
-     * @param transmitBuf buffer Bytes to transmit,
-     * @param length Number of bytes in buffer to transmit.
-	 * @param minc Set to use Memory Increment mode, clear to use Circular mode.
      */
-	uint8 dmaSend(uint8 *transmitBuf, uint16 length, bool minc = 1);
-	
-	/**
-     * @brief Sets up a DMA Transmit for half words.
-	 * SPI PERFIPHERAL MUST BE SET TO 16 BIT MODE BEFORE
+private:
+    void dmaTransferSet(void * receiveBuf, uint16 flags);
+    void dmaTransferRepeat();
+public:
+    void dmaTransferInit(const void * transmitBuf, void * receiveBuf, uint16 length, uint16 flags = 0);
+    void dmaTransferInit(const uint16_t tx_data, void * receiveBuf, uint16 length, uint16 flags = 0);
+    void dmaTransfer(const void * transmitBuf, void * receiveBuf, uint16 length, uint16 flags = 0);
+    void dmaTransfer(const uint16_t tx_data, void * receiveBuf, uint16 length, uint16 flags = 0);
+    void dmaTransfer(void) { dmaTransferRepeat(); }
+    uint8_t dmaTransferReady() { return (_currentSetting->state == SPI_STATE_READY) ? 1 : 0; }
+    uint8_t dmaTransferState() { return (_currentSetting->state); }
+    uint16_t dmaTransferRemaining(void) {
+        return dma_get_count(_currentSetting->spiDmaDev, _currentSetting->spiRxDmaStream);
+    }
+
+    /**
+     * @brief Sets up a DMA Transmit for SPI 8 or 16 bit transfer mode.
+     * The transfer mode (8 or 16 bit mode) is evaluated from the SPI peripheral setting.
      *
-     * This function transmits and does not care about the RX fifo.
+     * This function only transmits and does not care about the RX fifo.
      *
      * @param data buffer half words to transmit,
      * @param length Number of bytes in buffer to transmit.
-     * @param minc Set to use Memory Increment mode (default if blank), clear to use Circular mode.
+     * @param minc Set to use Memory Increment mode, clear to use Circular mode.
      */
-	uint8 dmaSend(uint16 *transmitBuf, uint16 length, bool minc = 1);
+private:
+    void dmaSendSet(uint16 flags);
+    void dmaSendRepeat();
+public:
+    void dmaSendInit(const void * transmitBuf, uint16 length, uint16 flags = 0);
+    void dmaSendInit(const uint16_t tx_dat, uint16 length, uint16 flags = 0);
+    void dmaSend(const void * transmitBuf, uint16 length, uint16 flags = 0);
+    void dmaSend(const uint16_t tx_data, uint16 length, uint16 flags = 0);
+    void dmaSend(const void * transmitBuf);
+    void dmaSend(const uint16_t tx_data);
+    void dmaSend(void) { dmaSendRepeat(); }
+    uint8_t dmaSendReady() { return (_currentSetting->state == SPI_STATE_READY) ? 1 : 0; }
+    uint16_t dmaSendRemaining(void) {
+        return dma_get_count(_currentSetting->spiDmaDev, _currentSetting->spiTxDmaStream);
+    }
+
+    #define dmaSendAsync(transmit, length, minc) ( dmaSend(transmit, length, (minc&BIT0)) )
 
     /*
      * Pin accessors
@@ -304,7 +371,16 @@ public:
      * @brief Get a pointer to the underlying libmaple spi_dev for
      *        this HardwareSPI instance.
      */
-    spi_dev* c_dev(void) { return this->spi_d; }
+    spi_dev* c_dev(void) { return _currentSetting->spi_d; }
+
+    spi_dev *dev(){ return _currentSetting->spi_d; }
+
+    /**
+    * @brief Sets the number of the SPI peripheral to be used by this HardwareSPI instance.
+    *
+    * @param spi_num Number of the SPI port. 1-2 in low density devices or 1-3 in high density devices.
+    */
+    void setModule(int spi_num, uint8_t alt_pins = 0);
 
     /* -- The following methods are deprecated --------------------------- */
 
@@ -329,35 +405,17 @@ public:
      */
     uint8 send(uint8 *data, uint32 length);
 
-    /**
-     * @brief Deprecated.
-     *
-     * Use HardwareSPI::read() instead.
-     *
-     * @see HardwareSPI::read()
-     */
-    uint8 recv(void);
-	
-	spi_dev *dev(){ return spi_d;}
-	
-	
-	
-private:
+    void EventCallback(uint16_t spi_num);
 
-	static inline void DMA1_CH3_Event() {
-		dma1_ch3_Active = 0;
-//		dma_disable(DMA1, DMA_CH3);
-//		dma_disable(DMA1, DMA_CH2);
-		
-		// To Do. Need to wait for 
-	}
-	spi_dev *spi_d;
-	uint8_t _SSPin;
-	uint32_t clockDivider;
-	uint8_t dataMode;
-	BitOrder bitOrder;
+private:
+    SPISettings *_currentSetting;
+
+    void updateSettings(void);
+
+    void dmaWaitCompletion(void);
+
 };
 
+extern SPIClass SPI;
 
-extern SPIClass SPI;//(1);// dummy params
 #endif

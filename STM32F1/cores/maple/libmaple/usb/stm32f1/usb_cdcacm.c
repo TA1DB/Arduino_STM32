@@ -62,8 +62,8 @@
 
 #if !(defined(BOARD_maple) || defined(BOARD_maple_RET6) ||      \
       defined(BOARD_maple_mini) || defined(BOARD_maple_native))
-#warning USB CDC ACM relies on LeafLabs board-specific configuration.\
-    You may have problems on non-LeafLabs boards.
+//#warning USB CDC ACM relies on LeafLabs board-specific configuration.
+//    You may have problems on non-LeafLabs boards.
 #endif
 
 static void vcomDataTxCb(void);
@@ -80,7 +80,6 @@ static uint8* usbGetConfigDescriptor(uint16 length);
 static uint8* usbGetStringDescriptor(uint16 length);
 static void usbSetConfiguration(void);
 static void usbSetDeviceAddress(void);
-
 /*
  * Descriptors
  */
@@ -384,10 +383,16 @@ void usb_cdcacm_enable(gpio_dev *disc_dev, uint8 disc_bit) {
     /* Present ourselves to the host. Writing 0 to "disc" pin must
      * pull USB_DP pin up while leaving USB_DM pulled down by the
      * transceiver. See USB 2.0 spec, section 7.1.7.3. */
-    gpio_set_mode(disc_dev, disc_bit, GPIO_OUTPUT_PP);
-    gpio_write_bit(disc_dev, disc_bit, 0);
-
+	 
+	if (disc_dev!=NULL)
+	{	 
+		gpio_set_mode(disc_dev, disc_bit, GPIO_OUTPUT_PP);
+		gpio_write_bit(disc_dev, disc_bit, 0);
+	}
+	
     /* Initialize the USB peripheral. */
+    /* One of the callbacks that will automatically happen from this will be to usbInit(),
+       which will power up the USB peripheral. */
     usb_init_usblib(USBLIB, ep_int_in, ep_int_out);
 }
 
@@ -395,7 +400,13 @@ void usb_cdcacm_disable(gpio_dev *disc_dev, uint8 disc_bit) {
     /* Turn off the interrupt and signal disconnect (see e.g. USB 2.0
      * spec, section 7.1.7.3). */
     nvic_irq_disable(NVIC_USB_LP_CAN_RX0);
-    gpio_write_bit(disc_dev, disc_bit, 1);
+	if (disc_dev!=NULL)
+	{
+		gpio_write_bit(disc_dev, disc_bit, 1);
+	}
+    /* Powerdown the USB peripheral. It gets powered up again with usbInit(), which
+       gets called when usb_cdcacm_enable() is called. */
+    usb_power_off(); 
 }
 
 void usb_cdcacm_putc(char ch) {
@@ -445,6 +456,11 @@ uint8 usb_cdcacm_is_transmitting(void) {
     return ( transmitting>0 ? transmitting : 0);
 }
 
+int usb_cdcacm_tx_available()
+{
+	return CDC_SERIAL_TX_BUFFER_SIZE - usb_cdcacm_get_pending() - 1;
+}
+
 uint16 usb_cdcacm_get_pending(void) {
     return (tx_head - tx_tail) & CDC_SERIAL_TX_BUFFER_SIZE_MASK;
 }
@@ -476,9 +492,9 @@ uint32 usb_cdcacm_rx(uint8* buf, uint32 len)
  * Looks at unread bytes without marking them as read. */
 uint32 usb_cdcacm_peek(uint8* buf, uint32 len)
 {
-    int i;
+    uint32 i;
     uint32 tail = rx_tail;
-	uint32 rx_unread = (rx_head-tail) & CDC_SERIAL_RX_BUFFER_SIZE_MASK;
+    uint32 rx_unread = (rx_head-tail) & CDC_SERIAL_RX_BUFFER_SIZE_MASK;
 
     if (len > rx_unread) {
         len = rx_unread;
@@ -494,12 +510,12 @@ uint32 usb_cdcacm_peek(uint8* buf, uint32 len)
 
 uint32 usb_cdcacm_peek_ex(uint8* buf, uint32 offset, uint32 len)
 {
-    int i;
+    uint32 i;
     uint32 tail = (rx_tail + offset) & CDC_SERIAL_RX_BUFFER_SIZE_MASK ;
-	uint32 rx_unread = (rx_head-tail) & CDC_SERIAL_RX_BUFFER_SIZE_MASK;
+    uint32 rx_unread = (rx_head - tail) & CDC_SERIAL_RX_BUFFER_SIZE_MASK;
 
-    if (len + offset > rx_unread) {
-        len = rx_unread - offset;
+    if (len > rx_unread) {
+        len = rx_unread;
     }
 
     for (i = 0; i < len; i++) {
@@ -572,7 +588,7 @@ static void vcomDataTxCb(void)
 	uint32 *dst = usb_pma_ptr(USB_CDCACM_TX_ADDR);
     uint16 tmp = 0;
 	uint16 val;
-	int i;
+	uint32 i;
 	for (i = 0; i < tx_unsent; i++) {
 		val = vcomBufferTx[tail];
 		tail = (tail + 1) & CDC_SERIAL_TX_BUFFER_SIZE_MASK;
@@ -637,7 +653,8 @@ static uint8* vcomGetSetLineCoding(uint16 length) {
 static void usbInit(void) {
     pInformation->Current_Configuration = 0;
 
-    USB_BASE->CNTR = USB_CNTR_FRES;
+    // Reset and power up the peripheral.
+    USB_BASE->CNTR = USB_CNTR_FRES; 
 
     USBLIB->irq_mask = 0;
     USB_BASE->CNTR = USBLIB->irq_mask;
